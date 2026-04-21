@@ -199,31 +199,24 @@ const INTRO_SLIDES = [
     id:"title",
     title:"OBJECT COMPONENT\nPATTERN",
     visual:"title",
-    lines:[
-      "The fundamental building block",
-      "of modern game development.",
-    ],
+    lines:[],           // no body text on title slide
     showComps:0,
   },
   {
     id:"gameobject",
-    title:"THE GAME OBJECT",
+    title:"GAME OBJECT",
     visual:"entity",
     lines:[
-      "An empty container.",
-      "It exists somewhere in the world.",
-      "But by itself — it does nothing.",
-      "No appearance. No movement. No sound.",
+      "An empty container that exists in the world, but does nothing.",
     ],
     showComps:0,
   },
   {
     id:"whatiscomp",
-    title:"WHAT IS A COMPONENT?",
+    title:"COMPONENT",
     visual:"compdef",
     lines:[
-      "A Component attaches to a Game Object.",
-      "It gives the object exactly one behaviour.",
+      "Behavior that can be attached to a GameObject.",
       "It can be a pre-made engine tool,",
       "or a custom script you write yourself.",
     ],
@@ -242,11 +235,10 @@ const INTRO_SLIDES = [
   },
   {
     id:"stack",
-    title:"STACK THEM UP",
+    title:"COMBINE BEHAVIORS",
     visual:"attached",
     lines:[
       "Every component adds one new behaviour.",
-      "Stack them up.",
       "The object becomes the sum of what you give it.",
     ],
     showComps:4,
@@ -254,7 +246,7 @@ const INTRO_SLIDES = [
   {
     id:"pattern",
     title:"THAT'S THE PATTERN.",
-    visual:"attached",
+    visual:"room",
     lines:[
       "No complex class hierarchies.",
       "Just entities and their components.",
@@ -343,340 +335,440 @@ function GripDots() {
   );
 }
 
-// ─── DIEGETIC GAME VIEW ───────────────────────────────────────────────────────
+// ─── GAME VIEW — LIVE SIMULATION ─────────────────────────────────────────────
+// Room shape (SVG viewBox 0-100 units, maps to % of container)
+const ROOM_PTS  = "6,8 94,8 94,28 100,28 100,72 94,72 94,92 70,92 70,100 30,100 30,92 6,92 6,72 0,72 0,28 6,28";
+const WALK_RECTS = [
+  [0.06,0.08,0.94,0.92],
+  [0.00,0.28,0.06,0.72],
+  [0.94,0.28,1.00,0.72],
+  [0.30,0.92,0.70,1.00],
+];
+const DUMMY_HOME = [
+  { id:0, nx:0.22, ny:0.25 },
+  { id:1, nx:0.82, ny:0.50 },
+  { id:2, nx:0.45, ny:0.78 },
+];
+const DUM_MAX_HP = 5;
+function inRoom(nx, ny) {
+  return WALK_RECTS.some(([x1,y1,x2,y2]) => nx>=x1&&nx<=x2&&ny>=y1&&ny<=y2);
+}
+
 function GameView({ attached, params }) {
-  const has = (id) => attached.some((t) => t.id === id);
-  const gp  = (id, key, def) =>
-    params[id] && params[id][key] != null ? params[id][key] : def;
+  const paramsRef = useRef(params);
+  useEffect(() => { paramsRef.current = params; });
 
-  const hasForm    = has("form");
-  const hasHP      = has("hp");
-  const hasMelee   = has("melee");
-  const hasRanged  = has("ranged");
-  const hasMagic   = has("magic");
-  const hasArmor   = has("armor");
-  const hasMove    = has("move");
-  const hasSight   = has("sight");
-  const hasBrain   = has("brain");
-  const hasVoice   = has("voice");
-  const hasElement = has("element");
+  const gsRef  = useRef(null);
+  const rafRef = useRef(null);
+  const [rs, setRs] = useState(null);
 
-  const heartCount   = hasHP      ? Math.round(gp("hp",     "maxHp",    3))   : 0;
-  const bodyScale    = hasForm    ? gp("form",  "scale",    10) / 10           : 1;
-  const bodyOpacity  = hasForm    ? gp("form",  "opacity",  100) / 100         : 1;
-  const moveSpeed    = hasMove    ? gp("move",  "speed",    5)                 : 5;
-  const bounceDur    = hasMove    ? (1.9 - moveSpeed * 0.14).toFixed(2) + "s" : "1.4s";
-  const sightRange   = hasSight   ? gp("sight", "range",    5)                 : 5;
-  const sightFov     = hasSight   ? gp("sight", "fov",      90)                : 90;
-  const voiceRadius  = hasVoice   ? gp("voice", "radius",   5)                 : 5;
-  const wispCount    = hasElement ? Math.max(2, Math.round(gp("element","intensity",5) * 0.8)) : 0;
-  const armorOpacity = hasArmor   ? 0.28 + gp("armor","defense",5) * 0.06     : 0;
-  const coneSize     = 18 + sightRange * 4;
+  const has = useCallback((id) => attached.some(t => t.id === id), [attached]);
+  const gp  = useCallback((id, k, def) => {
+    const p = paramsRef.current;
+    return (p[id] && p[id][k] != null) ? p[id][k] : def;
+  }, []);
 
-  const selectedSprite = gp("form", "sprite", "abstract");
-  const spriteData     = SPRITES.find((s) => s.id === selectedSprite);
-  const useEmoji       = hasForm && spriteData && spriteData.emoji;
-  const emojiSize      = Math.round(36 + bodyScale * 22);
+  const attachedKey = attached.map(t=>t.id).sort().join(",");
+
+  useEffect(() => {
+    // Initialise fresh game state whenever component set changes
+    const mhp = has("hp") ? gp("hp","maxHp",3)*20 : Infinity;
+    gsRef.current = {
+      e: { nx:0.5, ny:0.5, hp:mhp, maxHp:mhp,
+           dead:false, deadTimer:0, atkTimer:0, spellTimer:0,
+           wandTimer:0, wandTarget:{nx:0.5,ny:0.5} },
+      dummies: DUMMY_HOME.map(d=>({...d,hp:DUM_MAX_HP,maxHp:DUM_MAX_HP,state:"alive",respTimer:0,hit:0})),
+      proj:[],
+      swing:null, spell:null, voice:null,
+      floatTexts:[], _fid:0,
+    };
+
+    let last = 0;
+    const tick = (t) => {
+      rafRef.current = requestAnimationFrame(tick);
+      const dt = Math.min((t-last)/1000, 0.05);
+      last = t;
+      if (dt <= 0) return;
+      const gs = gsRef.current;
+      const e  = gs.e;
+
+      // Read component flags fresh each frame (closures over latest attached/params via ref)
+      const hasMove   = has("move");
+      const hasBrain  = has("brain");
+      const hasMelee  = has("melee");
+      const hasRanged = has("ranged");
+      const hasMagic  = has("magic");
+      const hasSight  = has("sight");
+      const hasHp_    = has("hp");
+      const hasArmor  = has("armor");
+      const hasVoice  = has("voice");
+      const hasElem   = has("element");
+
+      // Helper: spawn a floating damage number
+      const spawnFloat = (nx, ny, val, type) => {
+        if (val < 0.5) return;
+        gs.floatTexts.push({
+          id: gs._fid++,
+          nx: nx + (Math.random()-0.5)*0.06,
+          ny: ny - 0.03,
+          text: Math.max(1, Math.round(val)).toString(),
+          type,
+          age: 0,
+        });
+      };
+      const elemBonus = hasElem ? gp("element","intensity",5)*0.8 : 0;
+
+      const spd      = hasMove   ? gp("move",  "speed",    5)*0.05    : 0;
+      const detR     = hasSight  ? gp("sight", "range",    5)*0.09    : 0.38;
+      const meleeDist = 0.10;
+      const atkCd   = hasMelee  ? 1.8/Math.max(0.5,gp("melee","speed",  5)/3) : 999;
+      const mDmg    = hasMelee  ? gp("melee","damage",5)*1.5           : 0;
+      const spellCd = hasMagic  ? gp("magic","cooldown",4)             : 999;
+      const spellDmg= hasMagic  ? gp("magic","power",  8)*0.25         : 0;
+      const projSpd = hasRanged ? gp("ranged","projSpeed",7)*0.18      : 0;
+      const projDmg = hasRanged ? gp("ranged","damage",  4)*1.2        : 0;
+
+      // Dead → respawn
+      if (e.dead) {
+        e.deadTimer -= dt;
+        if (e.deadTimer <= 0) {
+          const mh = hasHp_ ? gp("hp","maxHp",3)*20 : Infinity;
+          Object.assign(e,{nx:0.5,ny:0.5,hp:mh,maxHp:mh,dead:false,atkTimer:0,spellTimer:0,wandTimer:0});
+        }
+      } else {
+        // Dummies passively damage entity when adjacent
+        if (hasHp_) {
+          gs.dummies.forEach(d => {
+            if (d.state !== "alive") return;
+            const dx=d.nx-e.nx, dy=d.ny-e.ny;
+            if (Math.sqrt(dx*dx+dy*dy) < meleeDist+0.04)
+              e.hp -= (hasArmor ? 0.8 : 2.5)*dt;
+          });
+          if (e.hp <= 0) { e.dead=true; e.deadTimer=3.5; }
+        }
+
+        // Nearest alive dummy
+        let nd=null, ndist=Infinity;
+        gs.dummies.forEach(d => {
+          if (d.state !== "alive") return;
+          const dx=d.nx-e.nx, dy=d.ny-e.ny;
+          const dist=Math.sqrt(dx*dx+dy*dy);
+          if (dist<ndist) { ndist=dist; nd=d; }
+        });
+
+        // Movement / AI
+        if (hasBrain && hasMove && nd && ndist<detR) {
+          // Chase
+          const dx=nd.nx-e.nx, dy=nd.ny-e.ny;
+          if (ndist>meleeDist) {
+            const nx_=e.nx+(dx/ndist)*spd*dt;
+            const ny_=e.ny+(dy/ndist)*spd*dt;
+            if (inRoom(nx_,ny_)) { e.nx=nx_; e.ny=ny_; }
+          }
+          // Melee swing
+          if (hasMelee && ndist<meleeDist+0.02) {
+            e.atkTimer -= dt;
+            if (e.atkTimer<=0) {
+              e.atkTimer = atkCd;
+              nd.hp = Math.max(0, nd.hp-mDmg);
+              nd.hit = 0.35;
+              spawnFloat(nd.nx, nd.ny, mDmg, "normal");
+              if (hasElem) {
+                nd.hp = Math.max(0, nd.hp-elemBonus);
+                spawnFloat(nd.nx+0.04, nd.ny-0.04, elemBonus, "element");
+              }
+              gs.swing = { nx:e.nx, ny:e.ny, angle:Math.atan2(dy,dx), t:0.22 };
+              if (hasVoice) gs.voice = { t:0.65 };
+              if (nd.hp<=0) { nd.state="dead"; nd.respTimer=3; }
+            }
+          }
+        } else if (hasMove) {
+          // Wander
+          e.wandTimer -= dt;
+          if (e.wandTimer<=0) {
+            e.wandTimer = 1.5+Math.random()*2;
+            let wx,wy,att=0;
+            do { wx=0.07+Math.random()*0.86; wy=0.1+Math.random()*0.82; att++; }
+            while (!inRoom(wx,wy) && att<20);
+            e.wandTarget = {nx:wx,ny:wy};
+          }
+          const dx=e.wandTarget.nx-e.nx, dy=e.wandTarget.ny-e.ny;
+          const d=Math.sqrt(dx*dx+dy*dy);
+          if (d>0.025) {
+            const nx_=e.nx+(dx/d)*spd*0.55*dt;
+            const ny_=e.ny+(dy/d)*spd*0.55*dt;
+            if (inRoom(nx_,ny_)) { e.nx=nx_; e.ny=ny_; }
+          }
+        }
+
+        // Ranged attack (only when outside melee range)
+        if (hasRanged && nd && ndist>meleeDist && ndist<detR) {
+          e.atkTimer -= dt;
+          if (e.atkTimer<=0) {
+            e.atkTimer = atkCd*1.6;
+            const dx=nd.nx-e.nx, dy=nd.ny-e.ny;
+            gs.proj.push({nx:e.nx,ny:e.ny,vx:(dx/ndist)*projSpd,vy:(dy/ndist)*projSpd,tid:nd.id,life:2.5});
+          }
+        }
+
+        // Spell AoE
+        if (hasMagic) {
+          e.spellTimer -= dt;
+          if (e.spellTimer<=0) {
+            e.spellTimer = spellCd;
+            gs.spell = { nx:e.nx, ny:e.ny, t:0.8 };
+            gs.dummies.forEach(d => {
+              if (d.state!=="alive") return;
+              const dx=d.nx-e.nx, dy=d.ny-e.ny;
+              if (Math.sqrt(dx*dx+dy*dy)<0.22) {
+                d.hp=Math.max(0,d.hp-spellDmg); d.hit=0.35;
+                spawnFloat(d.nx, d.ny, spellDmg, "spell");
+                if (d.hp<=0){d.state="dead";d.respTimer=3;}
+              }
+            });
+          }
+        }
+      }
+
+      // Update projectiles
+      gs.proj = gs.proj.filter(p => {
+        p.nx+=p.vx*dt; p.ny+=p.vy*dt; p.life-=dt;
+        if (p.life<=0||!inRoom(p.nx,p.ny)) return false;
+        const tgt=gs.dummies.find(d=>d.id===p.tid&&d.state==="alive");
+        if (tgt) {
+          const dx=tgt.nx-p.nx, dy=tgt.ny-p.ny;
+          if (Math.sqrt(dx*dx+dy*dy)<0.06) {
+            tgt.hp=Math.max(0,tgt.hp-projDmg); tgt.hit=0.35;
+            spawnFloat(tgt.nx, tgt.ny, projDmg, "ranged");
+            if (hasElem) {
+              tgt.hp=Math.max(0,tgt.hp-elemBonus);
+              spawnFloat(tgt.nx+0.04, tgt.ny-0.04, elemBonus, "element");
+            }
+            if(tgt.hp<=0){tgt.state="dead";tgt.respTimer=3;}
+            return false;
+          }
+        }
+        return true;
+      });
+
+      // Update dummies
+      gs.dummies.forEach(d => {
+        d.hit=Math.max(0,(d.hit||0)-dt*3);
+        if (d.state==="dead"){d.respTimer-=dt; if(d.respTimer<=0){d.hp=d.maxHp;d.state="alive";}}
+      });
+
+      // Decay effects
+      if (gs.swing){gs.swing.t-=dt; if(gs.swing.t<=0)gs.swing=null;}
+      if (gs.spell){gs.spell.t-=dt; if(gs.spell.t<=0)gs.spell=null;}
+      if (gs.voice){gs.voice.t-=dt; if(gs.voice.t<=0)gs.voice=null;}
+
+      // Age float texts — remove after 1.1 seconds
+      gs.floatTexts.forEach(ft => { ft.age += dt; });
+      gs.floatTexts = gs.floatTexts.filter(ft => ft.age < 1.1);
+
+      // Snapshot for React render
+      setRs({
+        e:      {...e},
+        dummies: gs.dummies.map(d=>({...d})),
+        proj:    gs.proj.map(p=>({...p})),
+        swing:  gs.swing  ? {...gs.swing}  : null,
+        spell:  gs.spell  ? {...gs.spell}  : null,
+        voice:  gs.voice  ? {...gs.voice}  : null,
+        floatTexts: gs.floatTexts.map(ft=>({...ft})),
+      });
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if(rafRef.current) cancelAnimationFrame(rafRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attachedKey]);
+
+  const hasForm = has("form");
+  const hasHp   = has("hp");
+  const pc = (n) => (n*100)+"%";   // 0-1 normalized → CSS %
 
   return (
-    <div style={{
-      width:"100%", height:"100%", position:"relative", overflow:"hidden",
-      background:"#050310",
-    }}>
-      {/* Floor grid */}
-      <div style={{
-        position:"absolute", inset:0, pointerEvents:"none",
-        backgroundImage:
-          "linear-gradient(rgba(60,30,120,.09) 1px,transparent 1px)," +
-          "linear-gradient(90deg,rgba(60,30,120,.09) 1px,transparent 1px)",
-        backgroundSize:"14px 14px",
-      }} />
+    <div style={{width:"100%",height:"100%",position:"relative",background:"#08050e",overflow:"hidden"}}>
 
-      {/* HP HEARTS */}
-      {hasHP && (
-        <div style={{
-          position:"absolute", top:8, left:0, right:0,
-          display:"flex", justifyContent:"center", gap:5,
-          zIndex:10, pointerEvents:"none",
-        }}>
-          {Array.from({ length: heartCount }).map((_, i) => (
-            <div key={i} style={{
-              width:11, height:10,
-              background:P.redLt,
-              clipPath:"polygon(50% 100%, 0% 35%, 15% 0%, 50% 20%, 85% 0%, 100% 35%)",
-              animation:"mwHP " + (1.4 + i * 0.2) + "s ease-in-out " + (i * 0.18) + "s infinite alternate",
-            }} />
+      {/* ── Static room ── */}
+      <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none"
+        style={{position:"absolute",inset:0,zIndex:1}}>
+        <defs>
+          <pattern id="rg" width="8" height="8" patternUnits="userSpaceOnUse">
+            <path d="M 8 0 L 0 0 0 8" fill="none" stroke="rgba(70,50,90,.12)" strokeWidth=".4"/>
+          </pattern>
+        </defs>
+        <polygon points={ROOM_PTS} fill="rgba(18,12,28,.92)"/>
+        <polygon points={ROOM_PTS} fill="url(#rg)"/>
+        <polygon points={ROOM_PTS} fill="none" stroke="rgba(110,80,150,.38)" strokeWidth="1.5"/>
+      </svg>
+
+      {/* ── Dynamic effects (SVG overlay) ── */}
+      {rs && (
+        <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none"
+          style={{position:"absolute",inset:0,zIndex:6,pointerEvents:"none"}}>
+          {/* Detection ring */}
+          {has("sight") && !rs.e.dead && (
+            <ellipse cx={rs.e.nx*100} cy={rs.e.ny*100}
+              rx={has("sight")?gp("sight","range",5)*9:36}
+              ry={has("sight")?gp("sight","range",5)*9:36}
+              fill="none" stroke="rgba(216,190,50,.11)" strokeWidth="1" strokeDasharray="2,3"/>
+          )}
+          {/* Spell AoE ring */}
+          {rs.spell && (
+            <ellipse cx={rs.spell.nx*100} cy={rs.spell.ny*100} rx={22} ry={22}
+              fill="rgba(130,60,220,.07)" stroke="rgba(170,100,255,.75)" strokeWidth="1.5"
+              opacity={Math.min(1,rs.spell.t*1.5)}/>
+          )}
+          {/* Attack swing */}
+          {rs.swing && (
+            <line
+              x1={rs.swing.nx*100} y1={rs.swing.ny*100}
+              x2={(rs.swing.nx+Math.cos(rs.swing.angle)*0.13)*100}
+              y2={(rs.swing.ny+Math.sin(rs.swing.angle)*0.13)*100}
+              stroke="rgba(230,210,100,.95)" strokeWidth="2.5" strokeLinecap="round"
+              opacity={Math.min(1,rs.swing.t*5)}/>
+          )}
+          {/* Voice ripples */}
+          {rs.voice && !rs.e.dead && [0,1,2].map(i=>(
+            <circle key={i} cx={rs.e.nx*100} cy={rs.e.ny*100} r={7+i*8}
+              fill="none" stroke="rgba(200,130,50,.55)" strokeWidth="1"
+              opacity={Math.max(0,(rs.voice.t-i*0.18)*1.6)}/>
           ))}
-        </div>
+        </svg>
       )}
 
-      {/* DETECTION CONE */}
-      {hasSight && (
-        <div style={{
-          position:"absolute", right:10,
-          top:"calc(50% - " + coneSize + "px)",
-          width:0, height:0,
-          borderTop:    coneSize + "px solid transparent",
-          borderBottom: coneSize + "px solid transparent",
-          borderLeft:   Math.round(20 + sightFov * 0.22) + "px solid rgba(216,184,56,.15)",
-          animation:"mwSightPulse 2.4s ease-in-out infinite",
-          pointerEvents:"none",
-        }} />
-      )}
-
-      {/* VOICE RIPPLES */}
-      {hasVoice && [0,1,2].map((i) => {
-        const base = 36 + voiceRadius * 4;
+      {/* ── Entity ── */}
+      {rs && !rs.e.dead && (() => {
+        const spriteId  = gp("form", "sprite", "abstract");
+        const spriteData = SPRITES.find(s => s.id === spriteId);
+        const useEmoji  = hasForm && spriteData && spriteData.emoji;
+        const scale     = hasForm ? gp("form","scale",10)/10 : 1;
+        const opacity   = hasForm ? gp("form","opacity",100)/100 : 1;
+        const emojiSize = Math.round(18 * scale);
+        const hpBarW    = useEmoji ? Math.max(26, emojiSize) : 26;
         return (
-          <div key={i} style={{
-            position:"absolute", top:"50%", left:"50%",
-            width:  base + i * 22, height: base + i * 22,
-            marginLeft:-(base / 2 + i * 11), marginTop:-(base / 2 + i * 11),
-            border:"1px solid rgba(200,120,40," + (0.4 - i * 0.11) + ")",
-            borderRadius:"50%",
-            animation:"mwRipple 2.8s ease-out " + (i * 0.9) + "s infinite",
-            pointerEvents:"none",
-          }} />
-        );
-      })}
-
-      {/* ELEMENT WISPS */}
-      {hasElement && Array.from({ length: wispCount }).map((_, i) => {
-        const angle = (i / wispCount) * Math.PI * 2;
-        const r = 44;
-        return (
-          <div key={i} style={{
-            position:"absolute",
-            top:  "calc(50% + " + (Math.sin(angle) * r).toFixed(1) + "px)",
-            left: "calc(50% + " + (Math.cos(angle) * r).toFixed(1) + "px)",
-            width:6, height:11,
-            background:"linear-gradient(to top,#d87030,#f0a040)",
-            borderRadius:"50% 50% 30% 30%",
-            opacity:.72,
-            animation:"mwWisp " + (1.2 + i * 0.3) + "s ease-in-out " + (i * 0.25) + "s infinite alternate",
-            pointerEvents:"none",
-          }} />
-        );
-      })}
-
-      {/* MAGIC RING */}
-      {hasMagic && (
-        <div style={{
-          position:"absolute", top:"50%", left:"50%",
-          width:72, height:72, marginLeft:-36, marginTop:-36,
-          border:"1.5px dashed rgba(152,100,232,.38)",
-          borderRadius:"50%",
-          animation:"mwSpin 6s linear infinite",
-          pointerEvents:"none", zIndex:1,
-        }}>
-          {[0,1,2,3].map((i) => (
-            <div key={i} style={{
-              position:"absolute", width:5, height:5, borderRadius:"50%",
-              background:"rgba(180,140,255,.6)",
-              top:  "calc(50% + " + (Math.sin((i/4)*Math.PI*2) * 34).toFixed(1) + "px)",
-              left: "calc(50% + " + (Math.cos((i/4)*Math.PI*2) * 34).toFixed(1) + "px)",
-              marginLeft:-2.5, marginTop:-2.5,
-            }} />
-          ))}
-        </div>
-      )}
-
-      {/* ARMOUR RING */}
-      {hasArmor && (
-        <div style={{
-          position:"absolute", top:"50%", left:"50%",
-          width:62, height:62, marginLeft:-31, marginTop:-31,
-          border:"2.5px solid rgba(90,154,224," + armorOpacity.toFixed(2) + ")",
-          borderRadius:"50%",
-          boxShadow:"0 0 12px rgba(90,154,224," + (armorOpacity * 0.5).toFixed(2) + ")",
-          pointerEvents:"none", zIndex:1,
-          animation:"mwArmorPulse 3s ease-in-out infinite",
-        }} />
-      )}
-
-      {/* MOVEMENT FOOTPRINTS */}
-      {hasMove && (
-        <div style={{
-          position:"absolute", bottom:12, left:0, right:0,
-          display:"flex", justifyContent:"center", gap:9,
-          pointerEvents:"none",
-        }}>
-          {[0,1,2].map((i) => (
-            <div key={i} style={{
-              width:5, height:7, borderRadius:"40%",
-              background:"rgba(196,154,44,.28)",
-              transform: i % 2 === 0 ? "rotate(-8deg)" : "rotate(8deg)",
-              animation:"mwStep 1.6s ease-in-out " + (i * 0.5) + "s infinite alternate",
-            }} />
-          ))}
-        </div>
-      )}
-
-      {/* BRAIN THOUGHT BUBBLE */}
-      {hasBrain && (
-        <div style={{
-          position:"absolute", top: hasHP ? 28 : 8, right:12,
-          display:"flex", flexDirection:"column", alignItems:"center", gap:2,
-          pointerEvents:"none",
-          animation:"mwThink 2.2s ease-in-out infinite",
-        }}>
-          {[4,6,9].map((sz, i) => (
-            <div key={i} style={{
-              width:sz, height:sz, borderRadius:"50%",
-              background:"rgba(180,160,230,.28)",
-              border:"1px solid rgba(180,160,230,.44)",
-            }} />
-          ))}
-        </div>
-      )}
-
-      {/* RANGED ARROW */}
-      {hasRanged && (
-        <div style={{
-          position:"absolute",
-          right: hasSight ? 28 : 14, top:"28%",
-          display:"flex", alignItems:"center",
-          pointerEvents:"none",
-          animation:"mwArrow 2s ease-in-out infinite",
-        }}>
-          <div style={{ width:22, height:1.5, background:"rgba(212,176,48,.5)" }} />
-          <div style={{
-            width:0, height:0,
-            borderTop:"4px solid transparent",
-            borderBottom:"4px solid transparent",
-            borderLeft:"7px solid rgba(212,176,48,.65)",
-          }} />
-        </div>
-      )}
-
-      {/* ── CREATURE
-           Outer div: centering (transform never changes)
-           Inner div: bounce animation only (translateY only, no conflict) ── */}
-      <div style={{
-        position:"absolute", top:"50%", left:"50%",
-        transform:"translate(-50%,-50%)",
-        zIndex:5, pointerEvents:"none",
-      }}>
-        <div style={{
-          animation: hasMove ? ("mwBounce " + bounceDur + " ease-in-out infinite") : "none",
-          display:"flex", alignItems:"center",
-        }}>
-          {useEmoji ? (
-            <div style={{ position:"relative" }}>
-              <span style={{
-                fontSize: emojiSize, lineHeight:1, display:"block",
-                opacity: bodyOpacity,
-                filter: hasArmor ? "drop-shadow(0 0 6px rgba(90,154,224,.4))" : "none",
-                transition:"font-size .3s, opacity .3s",
-                userSelect:"none",
-              }}>{spriteData.emoji}</span>
-              {hasMelee && (
-                <div style={{
-                  position:"absolute",
-                  right: Math.round(-12 - emojiSize * 0.2),
-                  top:   Math.round(emojiSize * 0.12),
-                  display:"flex", flexDirection:"column", alignItems:"center",
-                  animation:"mwSwordBob 2s ease-in-out infinite",
-                }}>
-                  <div style={{ width:4, height:4, borderRadius:"50%", background:"rgba(200,170,60,.72)" }} />
-                  <div style={{ width:2.5, height:8, background:"rgba(140,100,40,.6)" }} />
-                  <div style={{ width:12, height:2.5, background:"rgba(200,170,60,.72)", borderRadius:1 }} />
-                  <div style={{
-                    width:3, height: Math.round(16 * Math.max(0.7, bodyScale)),
-                    background:"linear-gradient(to bottom,rgba(230,220,200,.88),rgba(180,170,140,.3))",
-                    borderRadius:"0 0 50% 50%",
-                  }} />
+          <div style={{position:"absolute",left:pc(rs.e.nx),top:pc(rs.e.ny),
+            transform:"translate(-50%,-50%)",zIndex:10,pointerEvents:"none"}}>
+            {/* Health bar */}
+            {hasHp && rs.e.maxHp<Infinity && (
+              <div style={{position:"absolute",bottom:"calc(100% + 3px)",left:"50%",
+                transform:"translateX(-50%)",width:hpBarW}}>
+                <div style={{height:3,background:"rgba(40,15,15,.9)",borderRadius:2,overflow:"hidden"}}>
+                  <div style={{height:"100%",
+                    width:Math.max(0,rs.e.hp/rs.e.maxHp*100)+"%",
+                    background:"#c85050",borderRadius:2,transition:"width .08s"}}/>
                 </div>
-              )}
-            </div>
-          ) : (
-            <div style={{ position:"relative" }}>
-              <div style={{
-                width:  Math.round(36 * bodyScale),
-                height: Math.round(44 * bodyScale),
-                opacity: hasForm ? bodyOpacity : 1,
-                background: hasForm
-                  ? "linear-gradient(160deg,#3a2860 0%,#221840 50%,#1a1030 100%)"
-                  : "transparent",
-                border: hasForm
-                  ? "1.5px solid rgba(180,140,220,.46)"
-                  : "1.5px dashed rgba(196,154,44,.14)",
-                borderRadius:"40% 40% 30% 30%",
-                position:"relative",
-                boxShadow: hasForm ? "0 4px 20px rgba(100,60,180,.2)" : "none",
-                transition:"width .3s, height .3s, opacity .3s, background .4s",
-              }}>
-                {hasForm && (
-                  <div style={{
-                    position:"absolute", top: Math.round(10 * bodyScale),
-                    left:0, right:0, display:"flex", justifyContent:"center",
-                    gap: Math.round(8 * bodyScale),
-                  }}>
-                    {[0,1].map((i) => (
-                      <div key={i} style={{
-                        width:  Math.round(6 * bodyScale),
-                        height: Math.round((hasSight ? 8 : 6) * bodyScale),
-                        borderRadius:"50%",
-                        background: hasSight ? "#e8d060" : "rgba(220,200,255,.56)",
-                        boxShadow: hasSight ? "0 0 6px rgba(232,208,96,.5)" : "none",
-                        transition:"all .3s",
-                      }} />
-                    ))}
-                  </div>
-                )}
-                {hasForm && (
-                  <div style={{
-                    position:"absolute", bottom: Math.round(9 * bodyScale),
-                    left:"50%", transform:"translateX(-50%)",
-                    width:  Math.round((hasVoice ? 14 : hasMelee ? 12 : 8) * bodyScale),
-                    height: Math.round((hasVoice ? 6 : hasMelee ? 4 : 3) * bodyScale),
-                    borderRadius: hasVoice ? "0 0 50% 50%" : hasMelee ? "0 0 30% 30%" : "50%",
-                    background: hasVoice ? "rgba(200,100,60,.65)"
-                      : hasMelee ? "rgba(160,60,60,.55)" : "rgba(160,140,200,.36)",
-                    transition:"all .3s",
-                  }} />
-                )}
-                {!hasForm && (
-                  <div style={{
-                    position:"absolute", inset:0,
-                    display:"flex", alignItems:"center", justifyContent:"center",
-                    color:"rgba(196,154,44,.18)", fontSize:18, fontFamily:"'Jost',sans-serif",
-                  }}>?</div>
-                )}
               </div>
-              {hasMelee && (
-                <div style={{
-                  position:"absolute",
-                  right: Math.round(-14 * bodyScale),
-                  top:   Math.round(4  * bodyScale),
-                  display:"flex", flexDirection:"column", alignItems:"center",
-                  animation:"mwSwordBob 2s ease-in-out infinite",
-                }}>
-                  <div style={{ width:4, height:4, borderRadius:"50%", background:"rgba(200,170,60,.7)" }} />
-                  <div style={{ width:2.5, height:8, background:"rgba(140,100,40,.6)" }} />
-                  <div style={{ width:12, height:2.5, background:"rgba(200,170,60,.7)", borderRadius:1 }} />
-                  <div style={{
-                    width:3, height: Math.round(18 * Math.max(0.7, bodyScale)),
-                    background:"linear-gradient(to bottom,rgba(230,220,200,.88),rgba(180,170,140,.32))",
-                    borderRadius:"0 0 50% 50%",
-                  }} />
-                </div>
-              )}
+            )}
+            {/* Body — emoji sprite or blue circle */}
+            {useEmoji ? (
+              <span style={{
+                fontSize: emojiSize,
+                lineHeight: 1,
+                display: "block",
+                opacity: opacity,
+                filter: hasForm ? "drop-shadow(0 0 4px rgba(80,110,230,.55))" : "none",
+                userSelect: "none",
+                transition: "font-size .25s, opacity .25s",
+              }}>{spriteData.emoji}</span>
+            ) : (
+              <div style={{
+                width:14, height:14, borderRadius:"50%",
+                background:hasForm?"linear-gradient(135deg,#2838b0,#18206a)":"rgba(50,60,140,.18)",
+                border:hasForm?"2px solid rgba(110,140,255,.88)":"1.5px dashed rgba(110,140,255,.28)",
+                boxShadow:hasForm?"0 0 10px rgba(80,110,230,.65)":"none",
+              }}/>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── Dummies ── */}
+      {rs && rs.dummies.map(d=>(
+        <div key={d.id} style={{position:"absolute",left:pc(d.nx),top:pc(d.ny),
+          transform:"translate(-50%,-50%)",zIndex:8,pointerEvents:"none",
+          opacity:d.state==="dead"?0.1:1,transition:"opacity .35s"}}>
+          {d.state==="alive" && (
+            <div style={{position:"absolute",bottom:"calc(100% + 3px)",left:"50%",
+              transform:"translateX(-50%)",width:20}}>
+              <div style={{height:2.5,background:"rgba(15,35,15,.9)",borderRadius:2,overflow:"hidden"}}>
+                <div style={{height:"100%",width:(d.hp/d.maxHp*100)+"%",
+                  background:"#60b870",borderRadius:2,transition:"width .08s"}}/>
+              </div>
             </div>
           )}
+          <div style={{
+            width:11,height:11,borderRadius:2,
+            background:d.hit>0?"rgba(210,90,40,.95)":"rgba(70,55,25,.9)",
+            border:"1.5px solid "+(d.hit>0?"rgba(255,150,70,.95)":"rgba(150,130,50,.5)"),
+            transition:"background .05s",
+          }}/>
         </div>
-      </div>
+      ))}
 
-      {attached.length === 0 && (
-        <div style={{
-          position:"absolute", bottom:12, left:0, right:0,
-          textAlign:"center", fontSize:6,
-          fontFamily:"monospace", color:P.textDk, letterSpacing:2, pointerEvents:"none",
-        }}>EMPTY ENTITY</div>
+      {/* ── Projectiles ── */}
+      {rs && rs.proj.map((p,i)=>(
+        <div key={i} style={{position:"absolute",zIndex:11,
+          left:pc(p.nx),top:pc(p.ny),transform:"translate(-50%,-50%)",
+          width:5,height:5,borderRadius:"50%",
+          background:"rgba(245,215,80,.95)",
+          boxShadow:"0 0 5px rgba(245,215,80,.7)",
+          pointerEvents:"none"}}/>
+      ))}
+
+      {/* ── Floating combat text ── */}
+      {rs && rs.floatTexts && rs.floatTexts.map(ft => {
+        const t = ft.age / 1.1;                        // 0→1 over lifetime
+        // Pop-in: 0→0.12 scale up, 0.12→0.22 slight overshoot settle
+        const scale = t < 0.12 ? 0.4 + (t/0.12)*1.1
+                    : t < 0.22 ? 1.5 - ((t-0.12)/0.10)*0.5
+                    : 1.0;
+        // Opacity: fade in fast, stay, fade out last 40%
+        const opacity = t < 0.15 ? t/0.15
+                      : t < 0.62 ? 1
+                      : 1 - ((t-0.62)/0.38);
+        const floatPx = t * -28;                       // drift up 28px over lifetime
+
+        const COLOR = {
+          normal:  "rgba(255,255,255,0.97)",
+          element: "#ff8c30",                          // fire orange
+          spell:   "rgba(210,130,255,0.97)",           // arcane purple
+          ranged:  "rgba(245,215,80,0.97)",            // arrow yellow
+        };
+
+        return (
+          <div key={ft.id} style={{
+            position:"absolute", zIndex:20, pointerEvents:"none",
+            left:pc(ft.nx), top:pc(ft.ny),
+            transform:`translate(-50%, calc(-50% + ${floatPx}px)) scale(${scale.toFixed(3)})`,
+            color: COLOR[ft.type] || COLOR.normal,
+            fontSize: ft.type==="element" ? 10 : 12,
+            fontWeight: 700,
+            fontFamily: "'Jost', sans-serif",
+            letterSpacing: 0.5,
+            textShadow: "0 1px 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.6)",
+            opacity: Math.max(0, opacity),
+            userSelect: "none",
+          }}>{ft.text}</div>
+        );
+      })}
+
+      {/* ── Empty hint ── */}
+      {attached.length===0 && (
+        <div style={{position:"absolute",inset:0,display:"flex",
+          alignItems:"center",justifyContent:"center",pointerEvents:"none",zIndex:15}}>
+          <div style={{fontSize:8,color:"rgba(120,90,150,.38)",
+            fontFamily:"monospace",letterSpacing:2,textAlign:"center"}}>
+            EMPTY ENTITY<br/>add components
+          </div>
+        </div>
       )}
     </div>
   );
 }
+
+
 
 // ─── SLIDER ROW ───────────────────────────────────────────────────────────────
 // Uses plain block-level divs (not flex-column) so stacking is guaranteed on
@@ -884,6 +976,11 @@ function IntroVisual({ slide, compCount }) {
     );
   }
 
+  // ── ROOM slide ──
+  if (slide.visual === "room") {
+    return <IntroRoomScene />;
+  }
+
   // ── ATTACHED slide (components + connector + entity) ──
   const comps = INTRO_COMP_LIST.slice(0, compCount);
   return (
@@ -933,6 +1030,99 @@ function IntroVisual({ slide, compCount }) {
       </div>
     </div>
   );
+
+  // unreachable — satisfies linter
+  return null;
+}
+
+// ── ROOM SCENE (slide 6) ── drawn as a mini top-down dungeon room
+function IntroRoomScene() {
+  // Each object: {x,y} position (%), color, and component rects [{w,h,ox,oy}]
+  const objects = [
+    // Top-left: 2 components
+    { x:22, y:28, comps:[{ox:-18,oy:-6,w:14,h:7},{ox:-18,oy:4,w:14,h:7}] },
+    // Right-center: 3 components
+    { x:68, y:45, comps:[{ox:18,oy:-10,w:14,h:7},{ox:18,oy:0,w:14,h:7},{ox:18,oy:10,w:14,h:7}] },
+    // Bottom-left: 1 component
+    { x:30, y:70, comps:[{ox:-18,oy:0,w:14,h:7}] },
+    // Bottom-right: 2 components
+    { x:72, y:72, comps:[{ox:18,oy:-4,w:14,h:7},{ox:18,oy:6,w:14,h:7}] },
+  ];
+
+  return (
+    <div style={{
+      width:220, height:150, position:"relative",
+      background:"#05030f",
+      border:"1.5px solid rgba(80,120,220,.25)",
+      borderRadius:8,
+      overflow:"visible",
+    }}>
+      {/* floor grid */}
+      <div style={{
+        position:"absolute", inset:0, borderRadius:7,
+        backgroundImage:
+          "linear-gradient(rgba(60,30,120,.12) 1px,transparent 1px)," +
+          "linear-gradient(90deg,rgba(60,30,120,.12) 1px,transparent 1px)",
+        backgroundSize:"18px 18px",
+        overflow:"hidden",
+      }} />
+      {/* Room walls — subtle inner border */}
+      <div style={{
+        position:"absolute", inset:4,
+        border:"1px solid rgba(80,120,220,.15)",
+        borderRadius:5, pointerEvents:"none",
+      }} />
+
+      {/* Objects + components */}
+      {objects.map((obj, oi) => (
+        <div key={oi} style={{ position:"absolute", top:0, left:0, width:"100%", height:"100%" }}>
+          {/* Component rects */}
+          {obj.comps.map((c, ci) => (
+            <div key={ci} style={{
+              position:"absolute",
+              left:"calc(" + obj.x + "% + " + c.ox + "px - " + (c.w/2) + "px)",
+              top:"calc(" + obj.y + "% + " + c.oy + "px - " + (c.h/2) + "px)",
+              width:c.w, height:c.h,
+              background:"rgba(200,120,32,.75)",
+              border:"1px solid rgba(240,200,74,.6)",
+              borderRadius:2,
+              animation:"mwIntroShimmer2 " + (2 + oi * 0.4 + ci * 0.2) + "s ease-in-out infinite",
+            }} />
+          ))}
+          {/* Connector lines from entity to each component */}
+          {obj.comps.map((c, ci) => {
+            // Draw a thin line from entity center to component center
+            const ex = 0, ey = 0; // relative to entity center
+            const dx = c.ox, dy = c.oy;
+            const len = Math.sqrt(dx*dx + dy*dy);
+            const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+            return (
+              <div key={"ln-" + ci} style={{
+                position:"absolute",
+                left:"calc(" + obj.x + "% + 0px)",
+                top:"calc(" + obj.y + "% + 0px)",
+                width:len, height:1,
+                background:"rgba(200,120,32,.22)",
+                transformOrigin:"0 50%",
+                transform:"rotate(" + angle + "deg)",
+              }} />
+            );
+          })}
+          {/* Blue game object square */}
+          <div style={{
+            position:"absolute",
+            left:"calc(" + obj.x + "% - 9px)",
+            top:"calc(" + obj.y + "% - 9px)",
+            width:18, height:18,
+            background:"linear-gradient(135deg,#101e60,#1a2e88)",
+            border:"1.5px solid rgba(80,120,220,.7)",
+            borderRadius:3,
+            boxShadow:"0 0 8px rgba(60,100,210,.35)",
+          }} />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // ─── INTRO SCREEN ─────────────────────────────────────────────────────────────
@@ -940,16 +1130,15 @@ function IntroScreen({ onComplete }) {
   const [step, setStep]              = useState(0);
   const [revealedChars, setRevealed] = useState(0);
   const slide      = INTRO_SLIDES[step];
-  // Join lines with newline for a flat char array; track total length
   const flatText   = slide.lines.join("\n");
   const totalChars = flatText.length;
   const isTextDone = revealedChars >= totalChars;
   const isLast     = !!slide.isLast;
 
-  // Char-by-char timer — 32ms each (~medium visual-novel pace)
+  // Char-by-char timer — 28ms per character
   useEffect(() => {
     if (revealedChars >= totalChars) return;
-    const t = setTimeout(() => setRevealed((r) => r + 1), 32);
+    const t = setTimeout(() => setRevealed((r) => r + 1), 28);
     return () => clearTimeout(t);
   }, [revealedChars, totalChars]);
 
@@ -958,7 +1147,7 @@ function IntroScreen({ onComplete }) {
 
   const handleBtn = () => {
     if (!isTextDone) {
-      setRevealed(totalChars);   // skip: instantly show all
+      setRevealed(totalChars);
     } else if (isLast) {
       onComplete();
     } else {
@@ -966,26 +1155,39 @@ function IntroScreen({ onComplete }) {
     }
   };
 
-  // Split revealed flat text back into display lines, last char gets animation
-  const revealedFlat  = flatText.slice(0, revealedChars);
-  const stableFlat    = revealedFlat.slice(0, -1);
-  const latestChar    = revealedFlat.slice(-1);
-  const stableLines   = stableFlat.split("\n");
-  // Figure out if latest char ends a line
-  const allRevLines   = revealedFlat.split("\n");
-  const lastLineStable = stableLines[stableLines.length - 1];
-  const lastLineLatest = allRevLines[allRevLines.length - 1];
-  const latestIsNewline = latestChar === "\n";
+  // Pre-build character token list from flatText
+  // Each token: { key, ch, isNewline }
+  // We map revealedChars to show/hide each token via CSS opacity transition.
+  // Using stable keys means React reuses DOM nodes — the transition plays
+  // smoothly with no flash when a char moves from "latest" to "stable".
+  const tokens = [];
+  let gi = 0;
+  flatText.split("\n").forEach((line, li, arr) => {
+    [...line].forEach((ch) => {
+      tokens.push({ key: gi, ch, isNewline: false });
+      gi++;
+    });
+    if (li < arr.length - 1) {
+      tokens.push({ key: gi, ch: "\n", isNewline: true });
+      gi++;
+    }
+  });
 
   return (
-    <div style={{
-      position:"fixed", inset:0, zIndex:2000,
-      background:"#040210",
-      display:"flex", flexDirection:"column",
-      alignItems:"center", justifyContent:"flex-start",
-      padding:"5vh 24px 28px",
-      overflow:"auto",
-    }}>
+    <div
+      onClick={handleBtn}
+      style={{
+        position:"fixed", inset:0, zIndex:2000,
+        background:"#040210",
+        display:"flex", flexDirection:"column",
+        alignItems:"center", justifyContent:"flex-start",
+        padding:"5vh 24px 28px",
+        overflow:"auto",
+        touchAction:"manipulation",
+        userSelect:"none",
+        cursor:"default",
+      }}
+    >
 
       {/* Step dots */}
       <div style={{ display:"flex", gap:6, marginBottom:"2vh" }}>
@@ -1008,47 +1210,54 @@ function IntroScreen({ onComplete }) {
       </div>
 
       {/* Title */}
-      <div style={{
-        fontSize:20, fontWeight:700, color:P.goldLt,
-        letterSpacing:1.5, textAlign:"center",
-        marginBottom:"1.5vh", whiteSpace:"pre-line",
-        animation:"mwIntroSlideUp .28s ease",
-      }} key={"t-" + step}>{slide.title}</div>
+      <div
+        key={"t-" + step}
+        style={{
+          fontSize:22, fontWeight:700, color:P.goldLt,
+          letterSpacing:1.5, textAlign:"center",
+          marginBottom:"1.5vh", whiteSpace:"pre-line",
+          animation:"mwIntroSlideUp .28s ease",
+        }}
+      >{slide.title}</div>
 
-      {/* Char-by-char text area */}
-      <div style={{ maxWidth:340, width:"100%", marginBottom:"2.5vh", minHeight:92 }}>
-        {/* Render lines: stable lines fully opaque, last line gets the animated latest char */}
-        {allRevLines.map((line, li) => {
-          const isLastLine = li === allRevLines.length - 1;
-          const isBlankNewline = line === "" && !isLastLine;
-          if (isBlankNewline) return <div key={li} style={{ height:"0.5em" }} />;
-          const stablePart = isLastLine ? lastLineStable : line;
-          return (
-            <div key={li} style={{ fontSize:13, color:P.textMd, lineHeight:1.8 }}>
-              <span>{stablePart}</span>
-              {isLastLine && latestChar && !latestIsNewline && (
-                <span key={"ch-" + revealedChars}
-                  style={{ animation:"mwCharFade .22s ease both" }}>
-                  {latestChar}
-                </span>
-              )}
-            </div>
-          );
-        })}
+      {/* Body text — char-by-char CSS transition, no flash */}
+      <div style={{ maxWidth:340, width:"100%", marginBottom:"2.5vh", minHeight: slide.lines.length > 0 ? 80 : 0 }}>
+        <div style={{ fontSize:17, color:P.textMd, lineHeight:1.85 }}>
+          {tokens.map((tok) => {
+            const visible = tok.key < revealedChars;
+            if (tok.isNewline) {
+              return visible ? <br key={tok.key} /> : <span key={tok.key} />;
+            }
+            return (
+              <span
+                key={tok.key}
+                style={{
+                  opacity: visible ? 1 : 0,
+                  transition: "opacity 0.55s ease-out",
+                }}
+              >{tok.ch}</span>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Arrow button: stroke while animating, filled when done */}
-      <button className="mw-btn" onClick={handleBtn}
-        style={{
-          width:52, height:52, borderRadius:"50%", flexShrink:0,
-          display:"flex", alignItems:"center", justifyContent:"center",
-          fontSize:22, lineHeight:1,
-          border:"2px solid " + (isTextDone ? P.amber : "rgba(240,200,74,.28)"),
-          background: isTextDone ? "rgba(240,200,74,.18)" : "transparent",
-          color: isTextDone ? P.goldLt : "rgba(240,200,74,.3)",
-          transition:"border-color .45s, background .45s, color .45s",
-          animation: isTextDone ? "mwGlow 1.4s ease-in-out infinite" : "none",
-        }}>→</button>
+      {/* Triangle "tap to continue" indicator — sits just below the body text */}
+      <div style={{
+        marginTop:18,
+        display:"flex", justifyContent:"center",
+        pointerEvents:"none",
+        opacity: isTextDone ? 1 : 0,
+        transition:"opacity 0.7s ease",
+      }}>
+        <div style={{
+          width:0, height:0,
+          borderTop:"8px solid transparent",
+          borderBottom:"8px solid transparent",
+          borderLeft:"13px solid rgba(255,255,255,0.78)",
+          animation: isTextDone ? "mwTriBounce 1.15s ease-in-out infinite" : "none",
+          filter:"drop-shadow(0 0 3px rgba(255,255,255,0.25))",
+        }} />
+      </div>
     </div>
   );
 }
@@ -1224,7 +1433,8 @@ function MonsterWorkshop() {
         @keyframes mwIntroShimmer{0%,100%{box-shadow:0 0 36px rgba(60,100,210,.25)}50%{box-shadow:0 0 54px rgba(60,100,210,.5)}}
         @keyframes mwIntroSlideUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
         @keyframes mwLineFadeIn  {from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes mwCharFade    {from{opacity:0}to{opacity:1}}
+        @keyframes mwIntroShimmer2{0%,100%{opacity:.65}50%{opacity:1}}
+        @keyframes mwTriBounce   {0%,100%{transform:translateX(0);opacity:.55} 50%{transform:translateX(7px);opacity:1}}
         @keyframes mwAppBuildIn  {0%{opacity:0;transform:scale(.97) translateY(10px)}100%{opacity:1;transform:scale(1) translateY(0)}}
 
         .mw-btn {cursor:pointer;-webkit-tap-highlight-color:transparent;border:none;background:none;}
