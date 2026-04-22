@@ -1315,7 +1315,19 @@ function IntroScreen({ onComplete }) {
         cursor:"default",
       }}
     >
-      {/* Whole-slide fade wrapper */}
+      {/* Step dots — outside fade wrapper, always visible */}
+      <div style={{ display:"flex", gap:6, marginBottom:"2vh" }}>
+        {INTRO_SLIDES.map((_, i) => (
+          <div key={i} style={{
+            height:4, borderRadius:2,
+            width: i === step ? 18 : 5,
+            background: i < step ? P.amber : i === step ? P.goldLt : P.border,
+            transition:"all .3s",
+          }} />
+        ))}
+      </div>
+
+      {/* Whole-slide fade wrapper — excludes dots above */}
       <div style={{
         display:"flex", flexDirection:"column", alignItems:"center", width:"100%",
         opacity: phase === "in" ? 1 : 0,
@@ -1324,18 +1336,6 @@ function IntroScreen({ onComplete }) {
                   : "none",  // gap: instant, no transition
         pointerEvents: phase === "in" ? "auto" : "none",
       }}>
-        {/* Step dots */}
-        <div style={{ display:"flex", gap:6, marginBottom:"2vh" }}>
-          {INTRO_SLIDES.map((_, i) => (
-            <div key={i} style={{
-              height:4, borderRadius:2,
-              width: i === step ? 18 : 5,
-              background: i < step ? P.amber : i === step ? P.goldLt : P.border,
-              transition:"all .3s",
-            }} />
-          ))}
-        </div>
-
         {/* Visual */}
         <div style={{
           display:"flex", alignItems:"center", justifyContent:"center",
@@ -1976,9 +1976,6 @@ function MonsterWorkshop() {
                       </div>
                     </div>
                   </div>
-                  <div style={{ fontSize:12, color:P.textMd, lineHeight:1.75, marginBottom:10 }}>
-                    {selected.data.desc}
-                  </div>
                   <div style={{
                     padding:"6px 8px", borderRadius:4,
                     border:"1px solid " + P.border, background:P.panelAlt,
@@ -2248,13 +2245,13 @@ function MonsterWorkshop() {
                 letterSpacing:.8, marginBottom:12,
               }}>YOU BUILT A MELEE ATTACKER</div>
               <div style={{
-                fontSize:12, color:P.textMd, lineHeight:1.85, marginBottom:14,
+                fontSize:17, color:P.textMd, lineHeight:1.85, marginBottom:14,
               }}>
                 With these four components you've created a unit that has a visible body,
                 moves through the world, seeks out enemies, and damages them on contact.
               </div>
               <div style={{
-                fontSize:11, color:P.textDk, lineHeight:1.75, marginBottom:18,
+                fontSize:15, color:P.textDk, lineHeight:1.75, marginBottom:18,
                 fontStyle:"italic",
               }}>
                 Now the rest of the components are yours to explore.
@@ -2288,13 +2285,13 @@ function MonsterWorkshop() {
             }}>
               <Corners active={true} />
               <div style={{ fontSize:30, marginBottom:10 }}>👤</div>
-              <div style={{ fontSize:14, fontWeight:700, color:P.goldLt, letterSpacing:.8, marginBottom:12 }}>
+              <div style={{ fontSize:18, fontWeight:700, color:P.goldLt, letterSpacing:.8, marginBottom:12 }}>
                 RENDERER ATTACHED
               </div>
-              <div style={{ fontSize:12, color:P.textMd, lineHeight:1.85, marginBottom:14 }}>
+              <div style={{ fontSize:17, color:P.textMd, lineHeight:1.85, marginBottom:14 }}>
                 The Renderer gives your unit a visible body.
               </div>
-              <div style={{ fontSize:11, color:P.textDk, lineHeight:1.75, marginBottom:18, fontStyle:"italic" }}>
+              <div style={{ fontSize:15, color:P.textDk, lineHeight:1.75, marginBottom:18, fontStyle:"italic" }}>
                 Components can be customized.<br/>
                 Try tapping the Renderer in the DETAILS panel and picking a different sprite.
               </div>
@@ -2326,13 +2323,13 @@ function MonsterWorkshop() {
             }}>
               <Corners active={true} />
               <div style={{ fontSize:30, marginBottom:10 }}>✅</div>
-              <div style={{ fontSize:14, fontWeight:700, color:P.goldLt, letterSpacing:.8, marginBottom:12 }}>
+              <div style={{ fontSize:18, fontWeight:700, color:P.goldLt, letterSpacing:.8, marginBottom:12 }}>
                 LOOKING GOOD
               </div>
-              <div style={{ fontSize:12, color:P.textMd, lineHeight:1.85, marginBottom:14 }}>
+              <div style={{ fontSize:17, color:P.textMd, lineHeight:1.85, marginBottom:14 }}>
                 That's the power of components — each one can hold its own data and be tuned independently.
               </div>
-              <div style={{ fontSize:11, color:P.textDk, lineHeight:1.75, marginBottom:18, fontStyle:"italic" }}>
+              <div style={{ fontSize:15, color:P.textDk, lineHeight:1.75, marginBottom:18, fontStyle:"italic" }}>
                 Next challenge: build a unit that seeks out enemies and attacks them.
                 Three more components are on the way.
               </div>
@@ -2371,13 +2368,13 @@ function MonsterWorkshop() {
                 letterSpacing:1, marginBottom:12,
               }}>CAMERA ATTACHED</div>
               <div style={{
-                fontSize:12, color:P.textMd, lineHeight:1.8, marginBottom:18,
+                fontSize:17, color:P.textMd, lineHeight:1.8, marginBottom:18,
               }}>
                 The Camera component renders the game world to the screen.
                 Without it, the scene exists — but cannot be seen.
               </div>
               <div style={{
-                fontSize:11, color:P.textDk, lineHeight:1.7, marginBottom:18,
+                fontSize:15, color:P.textDk, lineHeight:1.7, marginBottom:18,
                 fontStyle:"italic",
               }}>
                 You now know how to attach a component.<br/>
