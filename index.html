@@ -1315,16 +1315,39 @@ function IntroScreen({ onComplete }) {
         cursor:"default",
       }}
     >
-      {/* Step dots — outside fade wrapper, always visible */}
-      <div style={{ display:"flex", gap:6, marginBottom:"2vh" }}>
-        {INTRO_SLIDES.map((_, i) => (
-          <div key={i} style={{
-            height:4, borderRadius:2,
-            width: i === step ? 18 : 5,
-            background: i < step ? P.amber : i === step ? P.goldLt : P.border,
-            transition:"all .3s",
-          }} />
-        ))}
+      {/* Dots row with back arrow — outside fade wrapper, always visible */}
+      <div style={{
+        display:"flex", alignItems:"center", gap:10, marginBottom:"2vh",
+        width:"100%", maxWidth:340, justifyContent:"center", position:"relative",
+      }}>
+        {/* Back arrow — only shown when not on first slide, hidden during transition */}
+        <button
+          className="mw-btn"
+          onClick={(e) => {
+            e.stopPropagation();           // don't also trigger the tap-to-advance
+            if (step > 0 && phase === "in") setPendingStep(step - 1);
+          }}
+          style={{
+            position:"absolute", left:0,
+            fontSize:16, lineHeight:1,
+            color: step > 0 && phase === "in" ? "rgba(255,255,255,.55)" : "transparent",
+            transition:"color .3s",
+            padding:"4px 6px",
+            pointerEvents: step > 0 && phase === "in" ? "auto" : "none",
+          }}
+        >←</button>
+
+        {/* Progress dots */}
+        <div style={{ display:"flex", gap:6 }}>
+          {INTRO_SLIDES.map((_, i) => (
+            <div key={i} style={{
+              height:4, borderRadius:2,
+              width: i === step ? 18 : 5,
+              background: i < step ? P.amber : i === step ? P.goldLt : P.border,
+              transition:"all .3s",
+            }} />
+          ))}
+        </div>
       </div>
 
       {/* Whole-slide fade wrapper — excludes dots above */}
