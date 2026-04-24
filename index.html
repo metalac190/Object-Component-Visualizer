@@ -158,7 +158,7 @@ const TRAITS = [
     desc:"Allocates a health pool. Allows the creature to take damage, react to pain events, and eventually be defeated.",
     ability:"can take damage and die",
     sliders:[
-      { key:"maxHp", label:"Max Health", min:1, max:5, step:1, def:3, unit:"" },
+      { key:"maxHp", label:"Max Health", min:1, max:10, step:1, def:3, unit:"" },
       { key:"regen", label:"Regen Rate", min:0, max:5, step:1, def:0, unit:"/s" },
     ]},
   { id:"melee",   name:"Melee Attack",    emoji:"⚔️", cat:"Combat",
@@ -239,42 +239,68 @@ const CHALLENGES = [
     flavor:"Lurks in the drains. Mindless and perpetually hungry.",
     story:"The simplest dungeon creature — blind instinct in a small, fast body.",
     successText:"Your rat scurries through the room — no brain, no plan, just hunger. It blunders into enemies and bites until one of them falls.",
-    spriteLabel:"Has a visible Rat body",
-    abilityBullets:["Has a visible body","Can take damage and be defeated","Attacks in melee","Moves through the world"],
+    spriteLabel:"Looks like a rat",
+    abilityBullets:["Has health and can be defeated","Attacks in melee","Moves through the world"],
     required:["form","hp","melee","move"],
+    bulletComponents:["hp","melee","move"],
     tip:"No Detection, no Brain — rats are pure instinct. They just blunder forward." },
   { id:"goblin",   emoji:"👺", sprite:"goblin",   name:"Goblin Scout",
     flavor:"Small, cowardly, and dangerously loud.",
     story:"A patrol unit — weak alone, dangerous because it calls for help.",
     successText:"Your goblin scouts the corridors. The moment it spots something, it screams — and suddenly the whole dungeon knows.",
-    spriteLabel:"Has a visible Goblin body",
-    abilityBullets:["Has a visible body","Can take damage and be defeated","Attacks in melee","Moves through the world","Detects the player","Alerts allies when triggered"],
+    spriteLabel:"Looks like a goblin",
+    abilityBullets:["Has health and can be defeated","Attacks in melee","Moves through the world","Detects the player","Alerts allies when triggered"],
     required:["form","hp","melee","move","sight","voice"],
+    bulletComponents:["hp","melee","move","sight","voice"],
     tip:"Voice is the key — it turns a weak creature into a dungeon-wide alarm system." },
   { id:"mage",     emoji:"🧙", sprite:"mage",     name:"Dark Mage",
     flavor:"Stands at the back. Destroys you from range. Smug about it.",
     story:"A stationary caster — it never closes the gap. The spells do the chasing.",
     successText:"Your mage stands perfectly still, chanting. When a target enters range, a burst of arcane energy erupts — no movement required.",
-    spriteLabel:"Has a visible Mage body",
-    abilityBullets:["Has a visible body","Can take damage and be defeated","Casts spells","Detects the player","Makes tactical decisions","Alerts allies when triggered"],
+    spriteLabel:"Looks like a mage",
+    abilityBullets:["Has health and can be defeated","Casts spells","Detects the player","Makes tactical decisions","Alerts allies when triggered"],
     required:["form","hp","magic","sight","brain","voice"],
+    bulletComponents:["hp","magic","sight","brain","voice"],
     tip:"Notice what is missing: no Movement. Mages are stationary — their spells do the chasing." },
   { id:"guardian", emoji:"🗿", sprite:"guardian", name:"Tomb Guardian",
     flavor:"Sealed for a thousand years. Activated the moment you crossed the threshold.",
     story:"A silent sentinel — it never calls for backup. It just acts.",
     successText:"Your guardian stands vigil. Armoured. Aware. It spots intruders, calculates, and strikes — alone, in silence.",
-    spriteLabel:"Has a visible Guardian body",
-    abilityBullets:["Has a visible body","Can take damage and be defeated","Resists physical damage","Attacks in melee","Detects the player","Makes tactical decisions"],
+    spriteLabel:"Looks like a guardian",
+    abilityBullets:["Has health and can be defeated","Resists physical damage","Attacks in melee","Detects the player","Makes tactical decisions"],
     required:["form","hp","armor","melee","sight","brain"],
+    bulletComponents:["hp","armor","melee","sight","brain"],
     tip:"No Voice — Tomb Guardians work alone and never call for backup." },
   { id:"dragon",   emoji:"🐉", sprite:"dragon",   name:"Elder Dragon",
     flavor:"The final boss. Ancient, cunning, lethal in every dimension.",
     story:"Every component. Maximum complexity. This is what a final boss looks like.",
     successText:"The Dragon fills the room. It moves, hunts, bites, blasts from range, erupts in magic, shrugs off damage, calls to its flight — and its attacks carry the force of the elements themselves.",
-    spriteLabel:"Has a visible Dragon body",
-    abilityBullets:["Has a visible body","Can take damage and be defeated","Attacks in melee","Fires from range","Casts spells","Resists physical damage","Moves through the world","Detects the player","Makes tactical decisions","Alerts allies when triggered","Wields elemental power"],
+    spriteLabel:"Looks like a dragon",
+    abilityBullets:[
+      "Has health set to high (10)",
+      "Attacks with high melee damage (10)",
+      "Fires ranged attacks",
+      "Casts spells with high power (10)",
+      "Resists damage with high defense (10)",
+      "Moves through the world",
+      "Detects the player with high range (10)",
+      "Makes tactical decisions",
+      "Alerts allies when triggered",
+      "Wields elemental power at high intensity (10)",
+    ],
     required:["form","hp","melee","ranged","magic","armor","move","sight","brain","voice","element"],
-    tip:"All components. Boss complexity comes from stacking more, not any single special ability." },
+    bulletComponents:["hp","melee","ranged","magic","armor","move","sight","brain","voice","element"],
+    paramChecks:[
+      { id:"hp",      key:"maxHp",    val:10 },
+      { id:"melee",   key:"damage",   val:10 },
+      { id:"magic",   key:"power",    val:10 },
+      { id:"armor",   key:"defense",  val:10 },
+      { id:"sight",   key:"range",    val:10 },
+      { id:"element", key:"intensity",val:10 },
+    ],
+    // Bullet indices (0-based) that require a slider paramCheck in addition to component attached
+    paramBulletIdx:[0,1,3,4,6,9],
+    tip:"All components. Set five sliders to maximum to summon a true final boss." },
 ];
 
 const LORE = [
@@ -340,9 +366,8 @@ const INTRO_SLIDES = [
     title:"ADD A COMPONENT",
     visual:"attached",
     lines:[
-      "Attach a Renderer.",
+      "Attach a Renderer Component.",
       "Now the object has a visible body.",
-      "One component. One ability.",
     ],
     showComps:1,
   },
@@ -1558,7 +1583,7 @@ function IntroScreen({ onComplete }) {
 
 
 // ─── OUTRO SCREEN ─────────────────────────────────────────────────────────────
-function OutroScreen({ onDone }) {
+function OutroScreen({ onPlayAgain, onFreeform }) {
   const [step, setStep]              = useState(0);
   const [revealedChars, setRevealed] = useState(0);
   const [phase, setPhase]            = useState("in");
@@ -1616,14 +1641,31 @@ function OutroScreen({ onDone }) {
         opacity: ending ? 1 : 0,
         transition: ending ? "opacity 2s ease-in" : "none",
         pointerEvents: ending ? "all" : "none",
-        display:"flex", alignItems:"flex-end", justifyContent:"center",
-        paddingBottom:"12vh",
+        display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+        gap:20,
       }}>
         {ending && (
-          <div style={{
-            fontSize:10, color:"rgba(255,255,255,.2)", fontFamily:"monospace",
-            letterSpacing:3, animation:"mwModalIn 1.8s ease 1.2s both",
-          }}>THE END</div>
+          <>
+            <div style={{
+              fontSize:10, color:"rgba(255,255,255,.2)", fontFamily:"monospace",
+              letterSpacing:3, marginBottom:20,
+              animation:"mwModalIn 1.8s ease 1.2s both",
+            }}>THE END</div>
+            <button className="mw-btn" onClick={onPlayAgain} style={{
+              padding:"10px 28px",
+              border:"1.5px solid " + P.amber, borderRadius:6,
+              background:"rgba(196,154,44,.14)",
+              color:P.goldLt, fontSize:13, letterSpacing:1.5, fontWeight:700,
+              animation:"mwModalIn 1s ease 2.2s both",
+            }}>PLAY AGAIN</button>
+            <button className="mw-btn" onClick={onFreeform} style={{
+              padding:"10px 28px",
+              border:"1px solid rgba(200,150,40,.35)", borderRadius:6,
+              background:"transparent",
+              color:P.textMd, fontSize:12, letterSpacing:1, fontWeight:500,
+              animation:"mwModalIn 1s ease 2.5s both",
+            }}>KEEP EXPERIMENTING</button>
+          </>
         )}
       </div>
       {/* Dots */}
@@ -1699,7 +1741,7 @@ function ChallengePopup({ ch, onDismiss, showSolution, onToggleSolution }) {
         {/* Body */}
         <div style={{ overflowY:"auto", flex:1, padding:"12px 18px" }}>
           {/* Sprite requirement */}
-          <div style={{ fontSize:11, color:P.textDk, fontFamily:"monospace", letterSpacing:1, marginBottom:6 }}>YOUR UNIT NEEDS TO:</div>
+          <div style={{ fontSize:11, color:P.textDk, fontFamily:"monospace", letterSpacing:1, marginBottom:6 }}>MAKE SURE YOUR UNIT:</div>
           <ul style={{ listStyle:"none", padding:0, margin:"0 0 10px 0" }}>
             {[ch.spriteLabel, ...ch.abilityBullets].map((b,i) => (
               <li key={i} style={{ display:"flex", alignItems:"flex-start", gap:8, marginBottom:5 }}>
@@ -1903,7 +1945,8 @@ function AttachedRow({ t, expanded, challenge, chalDone, spriteHint,
 // ─── COMPONENT LIST ROW ───────────────────────────────────────────────────────
 function TraitRow({ trait, isOn, selected, challenge, ghostPos, dragRef,
     starterRevealTime, fullRevealTime, stage2Shown,
-    handlePointerDown, handlePointerMove, handlePointerUp, sel, unlockedIds }) {
+    handlePointerDown, handlePointerMove, handlePointerUp, sel, unlockedIds,
+    showStarterHint }) {
   const on         = isOn(trait.id);
   const isSel      = selected && selected.type === "trait" && selected.data.id === trait.id;
   const req        = challenge && challenge.required.includes(trait.id);
@@ -1951,6 +1994,7 @@ function TraitRow({ trait, isOn, selected, challenge, ghostPos, dragRef,
         }}
       >
         {!on && <GripDots />}
+        {/* Camera drag hint */}
         {trait.id === "camera" && !on && unlockedIds.length === 1 && (
           <div style={{
             position:"absolute", bottom:-2, right:-10,
@@ -1958,6 +2002,17 @@ function TraitRow({ trait, isOn, selected, challenge, ghostPos, dragRef,
             animation:"mwDragHint 1.1s ease-in-out infinite",
             fontSize:16, transform:"rotate(-40deg)", transformOrigin:"center center",
             filter:"drop-shadow(0 0 3px rgba(255,255,255,.3))", lineHeight:1,
+          }}>{"➤"}</div>
+        )}
+        {/* Starter pack tutorial hint arrows */}
+        {showStarterHint && !on && STARTER_PACK.includes(trait.id) && (
+          <div style={{
+            position:"absolute", bottom:-2, right:-10,
+            zIndex:20, pointerEvents:"none",
+            animation:"mwDragHint 1.1s ease-in-out infinite",
+            fontSize:16, transform:"rotate(-40deg)", transformOrigin:"center center",
+            filter:"drop-shadow(0 0 3px rgba(240,200,74,.5))", lineHeight:1,
+            color:P.amber,
           }}>{"➤"}</div>
         )}
       </div>
@@ -2078,6 +2133,7 @@ function MonsterWorkshop() {
   const [showChallenge,   setShowChallenge]   = useState(false); // challenge brief popup
   const [showSolution,    setShowSolution]    = useState(false);
   const [showSuccess,     setShowSuccess]     = useState(false);
+  const [freeformMode,    setFreeformMode]    = useState(false);
   const [showOutro,       setShowOutro]       = useState(false);
   const activeChallenge = challengeIdx >= 0 && challengeIdx < CHALLENGES.length
     ? CHALLENGES[challengeIdx] : null;
@@ -2171,7 +2227,12 @@ function MonsterWorkshop() {
     const currentSprite2 = (params["form"] && params["form"]["sprite"]) || "abstract";
     const componentsOk = ch.required.every(id => attached.some(t => t.id === id));
     const spriteOk     = currentSprite2 === ch.sprite;
-    if (componentsOk && spriteOk) {
+    const paramsOk = !ch.paramChecks || ch.paramChecks.every(pc => {
+      if (!attached.some(t => t.id === pc.id)) return false;
+      const val = params[pc.id] && params[pc.id][pc.key] != null ? Number(params[pc.id][pc.key]) : null;
+      return val !== null && val >= pc.val;
+    });
+    if (componentsOk && spriteOk && paramsOk) {
       setShowSuccess(true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2323,6 +2384,7 @@ function MonsterWorkshop() {
       stage2Shown={stage2Shown}
       handlePointerDown={handlePointerDown} handlePointerMove={handlePointerMove}
       handlePointerUp={handlePointerUp} sel={sel} unlockedIds={unlockedIds}
+      showStarterHint={!!(starterRevealTime && !stage2Shown)}
     />
   );
 
@@ -2334,6 +2396,8 @@ function MonsterWorkshop() {
         @keyframes mwBrainSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes mwArmorSpin { from { transform: rotate(0deg); } to { transform: rotate(-360deg); } }
         @keyframes mwElemPulse { 0%,100% { transform: scale(1); filter: brightness(1); } 50% { transform: scale(1.18); filter: brightness(1.6); } }
+        @keyframes mwSuccessPop { from { opacity:0; transform: translateX(-18px); } 60% { transform: translateX(4px); } to { opacity:1; transform: translateX(0); } }
+        @keyframes mwWin        { from { opacity:0; transform: translateX(-14px); } 55% { transform: translateX(3px); } to { opacity:1; transform: translateX(0); } }
       `}</style>
 
       <DragGhost ghostPos={ghostPos} dragInfo={dragRef.current} />
@@ -2343,7 +2407,33 @@ function MonsterWorkshop() {
       {showWelcome && <WelcomePopup onStart={() => setShowWelcome(false)} />}
 
       {/* Outro slides after all challenges complete */}
-      {showOutro && <OutroScreen onDone={() => setShowOutro(false)} />}
+      {showOutro && (
+        <OutroScreen
+          onPlayAgain={() => {
+            setShowOutro(false);
+            // Reset to welcome popup (before unit builder)
+            setShowWelcome(true);
+            // Reset all progress
+            setAttached([]); setParams({}); setExpanded(null); setSelected(null);
+            setUnlockedIds([...STARTER_IDS]);
+            setCameraPopup(false); setStarterRevealTime(null);
+            setPrevCameraAttached(false); setPrevRendererAttached(false);
+            setRendererPopup(false); setRendererShown(false);
+            setSpriteDonePopup(false); setSpriteDoneShown(false);
+            setSpriteHint(null); setStage2Popup(false); setStage2Shown(false);
+            setFullRevealTime(null); setChallengeIdx(-1);
+            setShowChallenge(false); setShowSolution(false); setShowSuccess(false);
+            setFreeformMode(false);
+          }}
+          onFreeform={() => {
+            setShowOutro(false);
+            // Return to unit builder in freeform mode — keep all components/state
+            setFreeformMode(true);
+            setChallengeIdx(-1);
+            setShowChallenge(false); setShowSuccess(false);
+          }}
+        />
+      )}
 
       {/* Challenge brief popup   shown at start of each challenge + via HELP */}
       {showChallenge && activeChallenge && (
@@ -2386,14 +2476,16 @@ function MonsterWorkshop() {
               color:P.goldLt, letterSpacing:2.5,
             }}>UNIT BUILDER</div>
             <div style={{ fontSize:9, color:P.textMd, fontFamily:"monospace", marginTop:2, letterSpacing:.5 }}>
-              {!cameraPopup && !rendererPopup && !spriteDonePopup && !stage2Popup && !activeChallenge
+              {!cameraPopup && !rendererPopup && !spriteDonePopup && !stage2Popup && !activeChallenge && !freeformMode
                 ? (!attached.some(t=>t.id==="camera") ? "ATTACH CAMERA"
                   : !attached.some(t=>t.id==="form") ? "GIVE IT A VISIBLE BODY"
                   : !starterRevealTime ? "GIVE IT A VISIBLE BODY"
                   : "MAKE IT MOVE + FIGHT")
-                : activeChallenge
-                  ? ("CHALLENGE " + (challengeIdx+1) + " — " + activeChallenge.name.toUpperCase())
-                  : ""}
+                : freeformMode
+                  ? "FREEFORM MODE"
+                  : activeChallenge
+                    ? ("CHALLENGE " + (challengeIdx+1) + " — " + activeChallenge.name.toUpperCase())
+                    : ""}
             </div>
           </div>
 
@@ -2448,12 +2540,25 @@ function MonsterWorkshop() {
               gap:"3px 8px",
             }}>
               {[
+                // Sprite bullet — done when correct sprite is selected
                 { label: activeChallenge.spriteLabel,
                   done: isOn("form") && ((params["form"]&&params["form"]["sprite"]) || "abstract") === activeChallenge.sprite },
-                ...activeChallenge.abilityBullets.map((label, i) => ({
-                  label,
-                  done: isOn(activeChallenge.required[i]),
-                }))
+                // Ability bullets — each maps 1:1 to bulletComponents
+                ...activeChallenge.abilityBullets.map((label, i) => {
+                  const compId = activeChallenge.bulletComponents[i];
+                  // Dragon: some bullets also require a slider at max
+                  const needsParam = activeChallenge.paramBulletIdx && activeChallenge.paramBulletIdx.includes(i);
+                  let done = isOn(compId);
+                  if (done && needsParam && activeChallenge.paramChecks) {
+                    const pc = activeChallenge.paramChecks.find(p => p.id === compId);
+                    if (pc) {
+                      done = (params[pc.id] && params[pc.id][pc.key] != null)
+                        ? Number(params[pc.id][pc.key]) >= pc.val
+                        : false;
+                    }
+                  }
+                  return { label, done };
+                })
               ].map((item, i) => (
                 <div key={i} style={{
                   display:"flex", alignItems:"center", gap:5,
